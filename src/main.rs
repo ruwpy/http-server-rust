@@ -30,26 +30,30 @@ fn handle_connection(mut stream: TcpStream) {
 
     let (method, uri, http_version) = start_line.split(" ").next_tuple().unwrap();
 
-    let (status_line, contents) = if method.eq("GET") & uri.starts_with("/echo") {
-        let message = uri.split("/").nth(2).unwrap();
+    if method.eq("GET") {
+        let (status_line, contents) = if uri.starts_with("/echo") {
+            let message = uri.split("/").nth(2).unwrap();
 
-        ("HTTP/1.1 200 OK\r\n", message)
-    } else {
-        ("HTTP/1.1 404 Not Found\r\n", "Not Found")
-    };
+            ("HTTP/1.1 200 OK\r\n", message)
+        } else if uri.starts_with("/") {
+            ("HTTP/1.1 200 OK\r\n", "Hello, World!")
+        } else {
+            ("HTTP/1.1 404 Not Found\r\n", "Not Found")
+        };
 
-    let content_type_header = "Content-Type: text/plain";
-    let content_length_header = format!("Content-Length: {}", contents.len());
+        let content_type_header = "Content-Type: text/plain";
+        let content_length_header = format!("Content-Length: {}", contents.len());
 
-    let response = format!(
-        "{}{}\r\n{}",
-        status_line,
-        format!("{}\r\n{}\r\n", content_type_header, content_length_header),
-        contents
-    );
+        let response = format!(
+            "{}{}\r\n{}",
+            status_line,
+            format!("{}\r\n{}\r\n", content_type_header, content_length_header),
+            contents
+        );
 
-    println!("{}", &response);
+        println!("{}", &response);
 
-    stream.write(response.as_bytes()).unwrap();
-    stream.flush().unwrap();
+        stream.write(response.as_bytes()).unwrap();
+        stream.flush().unwrap();
+    }
 }
