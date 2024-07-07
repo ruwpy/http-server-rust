@@ -91,6 +91,8 @@ fn handle_connection(mut stream: TcpStream) {
             contents
         );
 
+        println!("{}", response);
+
         stream.write(response.as_bytes()).unwrap();
         stream.flush().unwrap();
     }
