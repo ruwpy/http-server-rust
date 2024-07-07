@@ -35,7 +35,7 @@ fn handle_connection(mut stream: TcpStream) {
             let message = uri.split("/").nth(2).unwrap();
 
             ("HTTP/1.1 200 OK\r\n", message)
-        } else if uri.starts_with("/") {
+        } else if uri.eq("/") {
             ("HTTP/1.1 200 OK\r\n", "Hello, World!")
         } else {
             ("HTTP/1.1 404 Not Found\r\n", "Not Found")
