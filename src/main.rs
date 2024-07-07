@@ -1,6 +1,6 @@
 use std::{
-    fs::File,
-    io::{BufRead, Read, Write},
+    collections::HashMap,
+    io::{Read, Write},
     net::{TcpListener, TcpStream},
 };
 
@@ -20,13 +20,33 @@ fn main() {
 }
 
 fn handle_connection(mut stream: TcpStream) {
-    let mut buffer = [0; 512];
+    let mut buffer = [0; 2048];
     stream.read(&mut buffer).unwrap();
 
     let request = String::from_utf8(buffer.into()).unwrap();
-    let lines = request.lines().collect_vec();
 
-    let start_line = lines.get(0).unwrap();
+    println!("{}", request);
+
+    let mut start_line = String::new();
+    let mut headers: HashMap<String, String> = HashMap::new();
+
+    for (index, line) in request.lines().enumerate() {
+        if index == 0 {
+            start_line = line.to_string();
+        };
+
+        if index >= 1 {
+            if line.is_empty() {
+                break;
+            }
+
+            println!("{}\r\n", line);
+
+            let (key, value) = line.split(": ").next_tuple().unwrap();
+
+            headers.insert(key.to_string(), value.to_string());
+        }
+    }
 
     let (method, uri, http_version) = start_line.split(" ").next_tuple().unwrap();
 
@@ -37,6 +57,10 @@ fn handle_connection(mut stream: TcpStream) {
             ("HTTP/1.1 200 OK\r\n", message)
         } else if uri.eq("/") {
             ("HTTP/1.1 200 OK\r\n", "Hello, World!")
+        } else if uri.eq("/user-agent") {
+            let user_agent_header = headers.get("User-Agent").unwrap().as_str();
+
+            ("HTTP/1.1 200 OK\r\n", user_agent_header)
         } else {
             ("HTTP/1.1 404 Not Found\r\n", "Not Found")
         };
@@ -50,8 +74,6 @@ fn handle_connection(mut stream: TcpStream) {
             format!("{}\r\n{}\r\n", content_type_header, content_length_header),
             contents
         );
-
-        println!("{}", &response);
 
         stream.write(response.as_bytes()).unwrap();
         stream.flush().unwrap();
