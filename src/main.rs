@@ -135,7 +135,10 @@ fn handle_connection(mut stream: TcpStream) {
                 let mut path = PathBuf::from("files/");
                 path.push(filename);
 
-                println!("{:?}", path);
+                let env_args: Vec<String> = env::args().collect();
+                let mut dir = env_args[2].clone();
+
+                println!("{:?}", dir);
 
                 let file = fs::write(path, body.to_string());
 
