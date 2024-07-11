@@ -132,15 +132,11 @@ fn handle_connection(mut stream: TcpStream) {
             "POST" => {
                 let filename = uri.split("/").nth(2).unwrap();
 
-                let mut path = PathBuf::from("files/");
-                path.push(filename);
-
                 let env_args: Vec<String> = env::args().collect();
                 let mut dir = env_args[2].clone();
+                dir.push_str(filename);
 
-                println!("{:?}", dir);
-
-                let file = fs::write(path, body.to_string());
+                let file = fs::write(dir, body.to_string());
 
                 match file {
                     Ok(_) => create_response(201, "Created".to_string(), ContentType::PlainText),
