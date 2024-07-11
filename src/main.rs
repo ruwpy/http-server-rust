@@ -3,9 +3,18 @@ use std::{
     env, fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
+    path::{Path, PathBuf},
 };
 
 use itertools::Itertools;
+
+enum RequestMethod {
+    GET,
+    POST,
+    PUT,
+    DELETE,
+    PATCH,
+}
 
 enum ContentType {
     PlainText,
@@ -60,7 +69,7 @@ fn main() {
 }
 
 fn handle_connection(mut stream: TcpStream) {
-    let mut buffer = [0; 2048];
+    let mut buffer = [0; 1024];
     stream.read(&mut buffer).unwrap();
 
     let request = String::from_utf8(buffer.into()).unwrap();
@@ -68,7 +77,7 @@ fn handle_connection(mut stream: TcpStream) {
     let mut headers: HashMap<String, String> = HashMap::new();
 
     let (start_line, request_details) = request.split_once("\r\n").unwrap();
-    let (headers_data, _) = request_details.split("\r\n\r\n").next_tuple().unwrap();
+    let (headers_data, body) = request_details.split("\r\n\r\n").next_tuple().unwrap();
 
     for line in headers_data.lines() {
         let (key, value) = line.split(": ").next_tuple().unwrap();
@@ -78,19 +87,33 @@ fn handle_connection(mut stream: TcpStream) {
 
     let (method, uri, _) = start_line.split(" ").next_tuple().unwrap();
 
-    if method.eq("GET") {
-        let response: Response = match uri {
-            user_agent if user_agent == "/user-agent" => {
+    let response: Response = match uri {
+        user_agent if user_agent == "/user-agent" => match method {
+            "GET" => {
                 let user_agent_header = headers.get("User-Agent").unwrap().as_str();
 
                 create_response(200, user_agent_header.to_string(), ContentType::PlainText)
             }
-            echo if echo.starts_with("/echo/") => {
+            _ => create_response(
+                405,
+                "Method Not Allowed".to_string(),
+                ContentType::PlainText,
+            ),
+        },
+        echo if echo.starts_with("/echo/") => match method {
+            "GET" => {
                 let message = uri.split("/").nth(2).unwrap();
 
                 create_response(200, message.to_string(), ContentType::PlainText)
             }
-            file if file.starts_with("/files/") => {
+            _ => create_response(
+                405,
+                "Method Not Allowed".to_string(),
+                ContentType::PlainText,
+            ),
+        },
+        file if file.starts_with("/files/") => match method {
+            "GET" => {
                 let filename = uri.split("/").nth(2).unwrap();
 
                 let env_args: Vec<String> = env::args().collect();
@@ -104,23 +127,51 @@ fn handle_connection(mut stream: TcpStream) {
                     Err(_) => create_response(404, "Not Found".to_string(), ContentType::PlainText),
                 }
             }
-            index if index == ("/") => {
-                create_response(200, "Hello, World!".to_string(), ContentType::PlainText)
-            }
-            _ => create_response(404, "Not Found".to_string(), ContentType::PlainText),
-        };
+            "POST" => {
+                let filename = uri.split("/").nth(2).unwrap();
 
-        stream
-            .write(response.format_to_string().as_bytes())
-            .unwrap();
-        stream.flush().unwrap();
-    }
+                let mut path = PathBuf::from("files/");
+                path.push(filename);
+
+                println!("{:?}", path);
+
+                let file = fs::write(path, body.to_string());
+
+                match file {
+                    Ok(_) => create_response(201, "Created".to_string(), ContentType::PlainText),
+                    Err(e) => create_response(500, e.to_string(), ContentType::PlainText),
+                }
+            }
+            _ => create_response(
+                405,
+                "Method Not Allowed".to_string(),
+                ContentType::PlainText,
+            ),
+        },
+        index if index == ("/") => match method {
+            "GET" => create_response(200, "Hello, World!".to_string(), ContentType::PlainText),
+            _ => create_response(
+                405,
+                "Method Not Allowed".to_string(),
+                ContentType::PlainText,
+            ),
+        },
+        _ => create_response(404, "Not Found".to_string(), ContentType::PlainText),
+    };
+
+    stream
+        .write(response.format_to_string().as_bytes())
+        .unwrap();
+    stream.flush().unwrap();
 }
 
 fn create_response(status_code: u16, data: String, content_type: ContentType) -> Response {
     let status_line = match status_code {
         200 => "HTTP/1.1 200 OK",
+        201 => "HTTP/1.1 201 Created",
         404 => "HTTP/1.1 404 Not Found",
+        405 => "HTTP/1.1 405 Method Not Allowed",
+        500 => "HTTP/1.1 500 Internal Server Error",
         _ => "HTTP/1.1 400 Bad Request",
     };
 
