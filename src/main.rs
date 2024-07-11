@@ -69,7 +69,7 @@ fn main() {
 }
 
 fn handle_connection(mut stream: TcpStream) {
-    let mut buffer = [0; 1024];
+    let mut buffer = [0; 2048];
     stream.read(&mut buffer).unwrap();
 
     let request = String::from_utf8(buffer.into()).unwrap();
@@ -121,6 +121,8 @@ fn handle_connection(mut stream: TcpStream) {
                 dir.push_str(filename);
 
                 let file = fs::read_to_string(dir);
+
+                println!("{:?}", file);
 
                 match file {
                     Ok(f) => create_response(200, f, ContentType::OctetStream),
