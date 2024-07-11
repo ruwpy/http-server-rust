@@ -136,7 +136,7 @@ fn handle_connection(mut stream: TcpStream) {
                 let mut dir = env_args[2].clone();
                 dir.push_str(filename);
 
-                let file = fs::write(dir, body.to_string());
+                let file = fs::write(dir, body.trim_matches(char::from(0)).to_string());
 
                 match file {
                     Ok(_) => create_response(201, "Created".to_string(), ContentType::PlainText),
