@@ -182,12 +182,12 @@ fn handle_connection(mut stream: TcpStream) {
         ),
     };
 
-    // println!("{}", response.format_to_string());
+    println!("{}", response.format_to_string());
 
-    stream
-        .write(response.format_to_string().as_bytes())
-        .unwrap();
-    stream.flush().unwrap();
+    // stream
+    //     .write(response.format_to_string().as_bytes())
+    //     .unwrap();
+    // stream.flush().unwrap();
 }
 
 fn create_response(
@@ -196,6 +196,8 @@ fn create_response(
     mut data: String,
     headers: Option<Vec<Header>>,
 ) -> Response {
+    let mut data_len = data.len().to_string();
+
     let status_line = match status_code {
         200 => "HTTP/1.1 200 OK",
         201 => "HTTP/1.1 201 Created",
@@ -229,14 +231,14 @@ fn create_response(
             let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
             encoder.write_all(data.as_bytes()).unwrap();
 
-            data = to_hex_string(encoder.finish().unwrap());
+            let encoded_data = encoder.finish().unwrap();
+
+            data = to_hex_string(encoded_data.clone());
+            data_len = encoded_data.len().to_string();
         }
     }
 
-    new_headers.push(Header::new(
-        "Content-Length".to_string(),
-        data.len().to_string(),
-    ));
+    new_headers.push(Header::new("Content-Length".to_string(), data_len));
 
     Response {
         status_line: status_line.to_string(),
