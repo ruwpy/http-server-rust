@@ -6,6 +6,7 @@ use std::{
     path::PathBuf,
 };
 
+use flate2::{write::GzEncoder, Compression};
 use itertools::Itertools;
 
 enum RequestMethod {
@@ -16,19 +17,9 @@ enum RequestMethod {
     PATCH,
 }
 
-enum EncodingAlgorithm {
-    Gzip,
-}
-
 struct Header {
     name: String,
     value: String,
-}
-
-struct Request {
-    start_line: String,
-    headers: Vec<Header>,
-    body: String,
 }
 
 struct Response {
@@ -202,7 +193,7 @@ fn handle_connection(mut stream: TcpStream) {
 fn create_response(
     request_headers: HashMap<String, String>,
     status_code: u16,
-    data: String,
+    mut data: String,
     headers: Option<Vec<Header>>,
 ) -> Response {
     let status_line = match status_code {
@@ -234,6 +225,11 @@ fn create_response(
                 "Content-Encoding".to_string(),
                 "gzip".to_string(),
             ));
+
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(data.as_bytes()).unwrap();
+
+            data = to_hex_string(encoder.finish().unwrap());
         }
     }
 
@@ -247,4 +243,9 @@ fn create_response(
         headers: new_headers,
         data,
     }
+}
+
+fn to_hex_string(bytes: Vec<u8>) -> String {
+    let hex_chars: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
+    hex_chars.join(" ")
 }
