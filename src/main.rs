@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fs,
+    env, fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     path::PathBuf,
@@ -137,7 +137,10 @@ fn handle_connection(mut stream: TcpStream) {
             RequestMethod::GET => {
                 let filename = uri.split("/").nth(2).unwrap();
 
-                let mut path = PathBuf::from("files/");
+                let env_args: Vec<String> = env::args().collect();
+                let dir = env_args[2].clone();
+
+                let mut path = PathBuf::from(dir);
                 path.push(filename);
 
                 let file = fs::read_to_string(path);
@@ -158,7 +161,10 @@ fn handle_connection(mut stream: TcpStream) {
             RequestMethod::POST => {
                 let filename = uri.split("/").nth(2).unwrap();
 
-                let mut path = PathBuf::from("files/");
+                let env_args: Vec<String> = env::args().collect();
+                let dir = env_args[2].clone();
+
+                let mut path = PathBuf::from(dir);
                 path.push(filename);
 
                 let file = fs::write(path, body.trim_matches(char::from(0)).to_string());
