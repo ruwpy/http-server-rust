@@ -25,7 +25,7 @@ struct Header {
 struct Response {
     status_line: String,
     headers: Vec<Header>,
-    data: String,
+    data: Vec<u8>,
 }
 
 impl RequestMethod {
@@ -52,19 +52,20 @@ impl Header {
 }
 
 impl Response {
-    fn format_to_string(self) -> String {
+    fn format_to_vec(self) -> Vec<u8> {
         let headers_str = self
             .headers
             .into_iter()
             .map(|h| h.format_to_string())
             .join("\r\n");
 
-        let formatted_response = format!(
-            "{}\r\n{}\r\n\r\n{}",
-            self.status_line, headers_str, self.data
-        );
+        let mut response: Vec<u8> = Vec::new();
 
-        formatted_response
+        response.extend(format!("{}\r\n", self.status_line).as_bytes());
+        response.extend(format!("{}\r\n\r\n", headers_str).as_bytes());
+        response.extend(self.data);
+
+        response
     }
 }
 
@@ -112,17 +113,22 @@ fn handle_connection(mut stream: TcpStream) {
             RequestMethod::GET => {
                 let user_agent_header = headers.get("user-agent").unwrap().as_str();
 
-                create_response(headers.clone(), 200, user_agent_header.to_string(), None)
+                create_response(
+                    headers.clone(),
+                    200,
+                    user_agent_header.as_bytes().to_vec(),
+                    None,
+                )
             }
-            _ => create_response(headers, 405, "Method Not Allowed".to_string(), None),
+            _ => create_response(headers, 405, "Method Not Allowed".as_bytes().to_vec(), None),
         },
         echo if echo.starts_with("/echo/") => match method {
             RequestMethod::GET => {
                 let message = uri.split("/").nth(2).unwrap();
 
-                create_response(headers, 200, message.to_string(), None)
+                create_response(headers, 200, message.as_bytes().to_vec(), None)
             }
-            _ => create_response(headers, 405, "Method Not Allowed".to_string(), None),
+            _ => create_response(headers, 405, "Method Not Allowed".as_bytes().to_vec(), None),
         },
         file if file.starts_with("/files/") => match method {
             RequestMethod::GET => {
@@ -140,13 +146,13 @@ fn handle_connection(mut stream: TcpStream) {
                     Ok(f) => create_response(
                         headers,
                         200,
-                        f,
+                        f.as_bytes().to_vec(),
                         Some(Vec::from([Header::new(
                             "Content-Type".to_string(),
                             "application/octet-stream".to_string(),
                         )])),
                     ),
-                    Err(_) => create_response(headers, 404, "Not Found".to_string(), None),
+                    Err(_) => create_response(headers, 404, "Not Found".as_bytes().to_vec(), None),
                 }
             }
             RequestMethod::POST => {
@@ -161,20 +167,24 @@ fn handle_connection(mut stream: TcpStream) {
                 let file = fs::write(path, body.trim_matches(char::from(0)).to_string());
 
                 match file {
-                    Ok(_) => create_response(headers, 201, "Created".to_string(), None),
-                    Err(e) => create_response(headers, 500, e.to_string(), None),
+                    Ok(_) => create_response(headers, 201, "Created".as_bytes().to_vec(), None),
+                    Err(e) => {
+                        create_response(headers, 500, "Error happened".as_bytes().to_vec(), None)
+                    }
                 }
             }
-            _ => create_response(headers, 405, "Method Not Allowed".to_string(), None),
+            _ => create_response(headers, 405, "Method Not Allowed".as_bytes().to_vec(), None),
         },
         index if index == ("/") => match method {
-            RequestMethod::GET => create_response(headers, 200, "Hello, World!".to_string(), None),
-            _ => create_response(headers, 405, "Method Not Allowed".to_string(), None),
+            RequestMethod::GET => {
+                create_response(headers, 200, "Hello, World!".as_bytes().to_vec(), None)
+            }
+            _ => create_response(headers, 405, "Method Not Allowed".as_bytes().to_vec(), None),
         },
         _ => create_response(
             headers,
             404,
-            "Not Found".to_string(),
+            "Not Found".as_bytes().to_vec(),
             Some(Vec::from([Header::new(
                 "Content-Type".to_string(),
                 "text/plain".to_string(),
@@ -182,18 +192,14 @@ fn handle_connection(mut stream: TcpStream) {
         ),
     };
 
-    println!("{}", response.format_to_string());
-
-    // stream
-    //     .write(response.format_to_string().as_bytes())
-    //     .unwrap();
-    // stream.flush().unwrap();
+    stream.write(response.format_to_vec().as_slice()).unwrap();
+    stream.flush().unwrap();
 }
 
 fn create_response(
     request_headers: HashMap<String, String>,
     status_code: u16,
-    mut data: String,
+    mut data: Vec<u8>,
     headers: Option<Vec<Header>>,
 ) -> Response {
     let mut data_len = data.len().to_string();
@@ -229,11 +235,11 @@ fn create_response(
             ));
 
             let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-            encoder.write_all(data.as_bytes()).unwrap();
+            encoder.write_all(data.as_slice()).unwrap();
 
             let encoded_data = encoder.finish().unwrap();
 
-            data = to_hex_string(encoded_data.clone());
+            data = encoded_data.clone();
             data_len = encoded_data.len().to_string();
         }
     }
@@ -245,9 +251,4 @@ fn create_response(
         headers: new_headers,
         data,
     }
-}
-
-fn to_hex_string(bytes: Vec<u8>) -> String {
-    let hex_chars: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
-    hex_chars.join(" ")
 }
