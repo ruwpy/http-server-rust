@@ -1,9 +1,9 @@
 use std::{
     collections::HashMap,
-    env, fs,
+    fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 use itertools::Itertools;
@@ -16,32 +16,56 @@ enum RequestMethod {
     PATCH,
 }
 
-enum ContentType {
-    PlainText,
-    OctetStream,
+enum EncodingAlgorithm {
+    Gzip,
+}
+
+struct Header {
+    name: String,
+    value: String,
+}
+
+struct Request {
+    start_line: String,
+    headers: Vec<Header>,
+    body: String,
 }
 
 struct Response {
     status_line: String,
+    headers: Vec<Header>,
     data: String,
-    content_type: String,
-    content_length: u16,
+}
+
+impl RequestMethod {
+    fn from_str(input: &str) -> Result<Self, ()> {
+        match input {
+            "GET" => Ok(Self::GET),
+            "POST" => Ok(Self::POST),
+            "PUT" => Ok(Self::PUT),
+            "DELETE" => Ok(Self::DELETE),
+            "PATCH" => Ok(Self::PATCH),
+            _ => Err(()),
+        }
+    }
+}
+
+impl Header {
+    fn new(name: String, value: String) -> Header {
+        Header { name, value }
+    }
+
+    fn format_to_string(self) -> String {
+        format!("{}: {}", self.name, self.value)
+    }
 }
 
 impl Response {
     fn format_to_string(self) -> String {
-        let headers = HashMap::from([
-            ("Content-Type", self.content_type),
-            ("Content-Length", self.content_length.to_string()),
-        ]);
-
-        let headers_str = headers
+        let headers_str = self
+            .headers
             .into_iter()
-            .map(|header| {
-                let (k, v) = header;
-
-                return format!("{}: {}", k, v);
-            })
+            .map(|h| h.format_to_string())
             .join("\r\n");
 
         let formatted_response = format!(
@@ -76,89 +100,92 @@ fn handle_connection(mut stream: TcpStream) {
 
     let mut headers: HashMap<String, String> = HashMap::new();
 
-    let (start_line, request_details) = request.split_once("\r\n").unwrap();
+    let (start_line, request_details) = request.split_once("\r\n").expect("Invalid request");
     let (headers_data, body) = request_details.split("\r\n\r\n").next_tuple().unwrap();
 
     for line in headers_data.lines() {
         let (key, value) = line.split(": ").next_tuple().unwrap();
 
-        headers.insert(key.to_string(), value.to_string());
+        headers.insert(
+            key.to_string().to_ascii_lowercase(),
+            value.to_string().to_ascii_lowercase(),
+        );
     }
 
     let (method, uri, _) = start_line.split(" ").next_tuple().unwrap();
 
+    let method = RequestMethod::from_str(method).expect("Method Not Allowed");
+
     let response: Response = match uri {
         user_agent if user_agent == "/user-agent" => match method {
-            "GET" => {
-                let user_agent_header = headers.get("User-Agent").unwrap().as_str();
+            RequestMethod::GET => {
+                let user_agent_header = headers.get("user-agent").unwrap().as_str();
 
-                create_response(200, user_agent_header.to_string(), ContentType::PlainText)
+                create_response(headers.clone(), 200, user_agent_header.to_string(), None)
             }
-            _ => create_response(
-                405,
-                "Method Not Allowed".to_string(),
-                ContentType::PlainText,
-            ),
+            _ => create_response(headers, 405, "Method Not Allowed".to_string(), None),
         },
         echo if echo.starts_with("/echo/") => match method {
-            "GET" => {
+            RequestMethod::GET => {
                 let message = uri.split("/").nth(2).unwrap();
 
-                create_response(200, message.to_string(), ContentType::PlainText)
+                create_response(headers, 200, message.to_string(), None)
             }
-            _ => create_response(
-                405,
-                "Method Not Allowed".to_string(),
-                ContentType::PlainText,
-            ),
+            _ => create_response(headers, 405, "Method Not Allowed".to_string(), None),
         },
         file if file.starts_with("/files/") => match method {
-            "GET" => {
+            RequestMethod::GET => {
                 let filename = uri.split("/").nth(2).unwrap();
 
-                let env_args: Vec<String> = env::args().collect();
-                let mut dir = env_args[2].clone();
-                dir.push_str(filename);
+                let mut path = PathBuf::from("files/");
+                path.push(filename);
 
-                let file = fs::read_to_string(dir);
-
-                println!("{:?}", file);
+                let file = fs::read_to_string(path);
 
                 match file {
-                    Ok(f) => create_response(200, f, ContentType::OctetStream),
-                    Err(_) => create_response(404, "Not Found".to_string(), ContentType::PlainText),
+                    Ok(f) => create_response(
+                        headers,
+                        200,
+                        f,
+                        Some(Vec::from([Header::new(
+                            "Content-Type".to_string(),
+                            "application/octet-stream".to_string(),
+                        )])),
+                    ),
+                    Err(_) => create_response(headers, 404, "Not Found".to_string(), None),
                 }
             }
-            "POST" => {
+            RequestMethod::POST => {
                 let filename = uri.split("/").nth(2).unwrap();
 
-                let env_args: Vec<String> = env::args().collect();
-                let mut dir = env_args[2].clone();
-                dir.push_str(filename);
+                let mut path = PathBuf::from("files/");
+                path.push(filename);
 
-                let file = fs::write(dir, body.trim_matches(char::from(0)).to_string());
+                let file = fs::write(path, body.trim_matches(char::from(0)).to_string());
 
                 match file {
-                    Ok(_) => create_response(201, "Created".to_string(), ContentType::PlainText),
-                    Err(e) => create_response(500, e.to_string(), ContentType::PlainText),
+                    Ok(_) => create_response(headers, 201, "Created".to_string(), None),
+                    Err(e) => create_response(headers, 500, e.to_string(), None),
                 }
             }
-            _ => create_response(
-                405,
-                "Method Not Allowed".to_string(),
-                ContentType::PlainText,
-            ),
+            _ => create_response(headers, 405, "Method Not Allowed".to_string(), None),
         },
         index if index == ("/") => match method {
-            "GET" => create_response(200, "Hello, World!".to_string(), ContentType::PlainText),
-            _ => create_response(
-                405,
-                "Method Not Allowed".to_string(),
-                ContentType::PlainText,
-            ),
+            RequestMethod::GET => create_response(headers, 200, "Hello, World!".to_string(), None),
+            _ => create_response(headers, 405, "Method Not Allowed".to_string(), None),
         },
-        _ => create_response(404, "Not Found".to_string(), ContentType::PlainText),
+        _ => create_response(
+            headers,
+            404,
+            "Not Found".to_string(),
+            Some(Vec::from([Header::new(
+                "Content-Type".to_string(),
+                "text/plain".to_string(),
+            )])),
+        ),
     };
+
+    // println!("{}", response.format_to_string());
 
     stream
         .write(response.format_to_string().as_bytes())
@@ -166,7 +193,12 @@ fn handle_connection(mut stream: TcpStream) {
     stream.flush().unwrap();
 }
 
-fn create_response(status_code: u16, data: String, content_type: ContentType) -> Response {
+fn create_response(
+    request_headers: HashMap<String, String>,
+    status_code: u16,
+    data: String,
+    headers: Option<Vec<Header>>,
+) -> Response {
     let status_line = match status_code {
         200 => "HTTP/1.1 200 OK",
         201 => "HTTP/1.1 201 Created",
@@ -176,15 +208,37 @@ fn create_response(status_code: u16, data: String, content_type: ContentType) ->
         _ => "HTTP/1.1 400 Bad Request",
     };
 
-    let content_type_str = match content_type {
-        ContentType::OctetStream => "application/octet-stream",
-        ContentType::PlainText => "text/plain",
+    let mut new_headers = match headers {
+        Some(headers) => headers,
+        None => Vec::from([Header::new(
+            "Content-Type".to_string(),
+            "text/plain".to_string(),
+        )]),
     };
+
+    if request_headers.contains_key("accept-encoding") {
+        let accepted_algorithms: Vec<&str> = request_headers
+            .get("accept-encoding")
+            .unwrap()
+            .split(", ")
+            .collect();
+
+        if accepted_algorithms.contains(&"gzip") {
+            new_headers.push(Header::new(
+                "Content-Encoding".to_string(),
+                "gzip".to_string(),
+            ));
+        }
+    }
+
+    new_headers.push(Header::new(
+        "Content-Length".to_string(),
+        data.len().to_string(),
+    ));
 
     Response {
         status_line: status_line.to_string(),
-        content_length: data.len() as u16,
-        content_type: content_type_str.to_string(),
+        headers: new_headers,
         data,
     }
 }
